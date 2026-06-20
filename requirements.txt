@@ -1,0 +1,41 @@
+# ── Web Framework ────────────────────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# ── PostgreSQL (async) ───────────────────────────────────────────
+sqlalchemy[asyncio]==2.0.35
+asyncpg==0.30.0
+psycopg2-binary==2.9.10       # used by Alembic (sync) for migrations
+
+# ── Alembic (DB migrations) ──────────────────────────────────────
+alembic==1.13.3
+
+# ── MongoDB (async) ──────────────────────────────────────────────
+motor==3.6.0
+pymongo==4.9.2
+
+# ── Redis (async) ────────────────────────────────────────────────
+redis[asyncio]==5.1.1
+
+# ── Kafka ────────────────────────────────────────────────────────
+aiokafka==0.14.0
+
+# ── Elasticsearch ────────────────────────────────────────────────
+elasticsearch[async]==8.15.1
+
+# ── Auth / Security ──────────────────────────────────────────────
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# ── Settings ─────────────────────────────────────────────────────
+pydantic==2.9.2
+pydantic-settings==2.5.2
+pydantic[email]
+
+# ── Email ────────────────────────────────────────────────────────
+# Uses stdlib smtplib — no extra package needed
+
+# ── HTTP / Utilities ─────────────────────────────────────────────
+python-multipart==0.0.12      # required for form data (OAuth2)
+httpx==0.27.2                 # async HTTP client (used in tests)
