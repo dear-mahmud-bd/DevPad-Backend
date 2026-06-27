@@ -110,6 +110,43 @@ async def list_notes(
     return [_doc_to_out(d) for d in docs]
 
 
+# ── GET /notes/accept-invite ──────────────────────────────────────
+# Must be defined BEFORE /{note_id} so FastAPI does not swallow it as a note_id.
+
+@router.get("/accept-invite", status_code=status.HTTP_200_OK)
+async def accept_invite(
+    token: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(CollaborationInvite).where(CollaborationInvite.token == token)
+    )
+    invite = result.scalar_one_or_none()
+    if not invite or invite.status != InviteStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Invalid or already used invite.")
+    if _now() > invite.expires_at:
+        invite.status = InviteStatus.EXPIRED
+        raise HTTPException(status_code=400, detail="Invite has expired.")
+    if current_user.email != invite.invitee_email:
+        raise HTTPException(status_code=403, detail="This invite was sent to a different email.")
+
+    perm = NotePermissionModel(
+        note_id=invite.note_id,
+        user_id=current_user.id,
+        granted_by=invite.inviter_id,
+        permission=invite.permission,
+    )
+    db.add(perm)
+    invite.status = InviteStatus.ACCEPTED
+
+    ip, ua = _ip_ua(request)
+    background_tasks.add_task(event_invite_accepted, current_user.id, invite.note_id, ip, ua)
+    return {"message": "Invite accepted. You now have access to the note."}
+
+
 # ── GET /notes/{id} ──────────────────────────────────────────────
 
 @router.get("/{note_id}", response_model=NoteOut)
@@ -247,42 +284,6 @@ async def share_note(
         event_invite_sent, current_user.id, note_id, body.invitee_email, body.permission, ip, ua
     )
     return {"message": f"Invitation sent to {body.invitee_email}."}
-
-
-# ── GET /notes/accept-invite ──────────────────────────────────────
-
-@router.get("/accept-invite", status_code=status.HTTP_200_OK)
-async def accept_invite(
-    token: str,
-    request: Request,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(
-        select(CollaborationInvite).where(CollaborationInvite.token == token)
-    )
-    invite = result.scalar_one_or_none()
-    if not invite or invite.status != InviteStatus.PENDING:
-        raise HTTPException(status_code=400, detail="Invalid or already used invite.")
-    if _now() > invite.expires_at:
-        invite.status = InviteStatus.EXPIRED
-        raise HTTPException(status_code=400, detail="Invite has expired.")
-    if current_user.email != invite.invitee_email:
-        raise HTTPException(status_code=403, detail="This invite was sent to a different email.")
-
-    perm = NotePermissionModel(
-        note_id=invite.note_id,
-        user_id=current_user.id,
-        granted_by=invite.inviter_id,
-        permission=invite.permission,
-    )
-    db.add(perm)
-    invite.status = InviteStatus.ACCEPTED
-
-    ip, ua = _ip_ua(request)
-    background_tasks.add_task(event_invite_accepted, current_user.id, invite.note_id, ip, ua)
-    return {"message": "Invite accepted. You now have access to the note."}
 
 
 # ── GET /notes/{id}/permissions ───────────────────────────────────

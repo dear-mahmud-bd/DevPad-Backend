@@ -28,6 +28,7 @@ from app.services.kafka_producer import stop_producer
 
 # Routers — Phase 1
 from app.api.v1 import auth, notes, users, trash, admin
+from app.api.v1.notes import public_router
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -114,11 +115,12 @@ async def log_requests(request: Request, call_next):
 
 API_PREFIX = "/api/v1"
 
-app.include_router(auth.router,   prefix=API_PREFIX)
-app.include_router(notes.router,  prefix=API_PREFIX)
-app.include_router(users.router,  prefix=API_PREFIX)
-app.include_router(trash.router,  prefix=API_PREFIX)
-app.include_router(admin.router,  prefix=API_PREFIX)
+app.include_router(auth.router,    prefix=API_PREFIX)
+app.include_router(notes.router,   prefix=API_PREFIX)
+app.include_router(users.router,   prefix=API_PREFIX)
+app.include_router(trash.router,   prefix=API_PREFIX)
+app.include_router(admin.router,   prefix=API_PREFIX)
+app.include_router(public_router)  # /p/{token} — no API prefix, public guest access
 
 
 # ── Health check ─────────────────────────────────────────────────

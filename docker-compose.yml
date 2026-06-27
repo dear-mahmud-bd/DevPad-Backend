@@ -38,7 +38,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-devpad}"]
       interval: 5s
@@ -174,6 +174,8 @@ services:
     build: .
     command: python -m consumer.consumer
     env_file: .env
+    environment:
+      MONGODB_URL: mongodb://mongo:mongo_secret@mongodb:27017
     depends_on:
       kafka1:
         condition: service_healthy
@@ -186,6 +188,9 @@ services:
     <<: *api-common
     environment:
       INSTANCE_ID: api1
+      DATABASE_URL: postgresql+psycopg2://devpad:devpad_secret@postgres:5432/devpad_db
+      DATABASE_ASYNC_URL: postgresql+asyncpg://devpad:devpad_secret@postgres:5432/devpad_db
+      MONGODB_URL: mongodb://mongo:mongo_secret@mongodb:27017
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
@@ -195,6 +200,9 @@ services:
     <<: *api-common
     environment:
       INSTANCE_ID: api2
+      DATABASE_URL: postgresql+psycopg2://devpad:devpad_secret@postgres:5432/devpad_db
+      DATABASE_ASYNC_URL: postgresql+asyncpg://devpad:devpad_secret@postgres:5432/devpad_db
+      MONGODB_URL: mongodb://mongo:mongo_secret@mongodb:27017
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8002:8000"
