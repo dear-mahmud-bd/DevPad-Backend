@@ -135,6 +135,26 @@ async def event_note_searched(user_id: int, query: str, ip: str, ua: str):
                         user_agent=ua, metadata={"query": query})
 
 
+async def event_password_changed(user_id: int, ip: str, ua: str):
+    await publish_event("password_changed", user_id=user_id,
+                        ip_address=ip, user_agent=ua)
+
+
+async def event_password_reset_requested(user_id: int, ip: str, ua: str):
+    await publish_event("password_reset_requested", user_id=user_id,
+                        ip_address=ip, user_agent=ua)
+
+
+async def event_password_reset_completed(user_id: int, ip: str, ua: str):
+    await publish_event("password_reset_completed", user_id=user_id,
+                        ip_address=ip, user_agent=ua)
+
+
+async def event_resend_verification(user_id: int, ip: str, ua: str):
+    await publish_event("resend_verification", user_id=user_id,
+                        ip_address=ip, user_agent=ua)
+
+
 async def event_invite_sent(user_id: int, note_id: str, invitee_email: str,
                              permission: str, ip: str, ua: str):
     await publish_event("invite_sent", user_id=user_id, resource_id=note_id,

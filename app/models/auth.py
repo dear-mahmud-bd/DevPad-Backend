@@ -2,9 +2,10 @@
 app/models/auth.py
 
 SQLAlchemy ORM models for:
-  - EmailVerification  (one-time tokens for email confirmation)
-  - NotePermissionModel (who can view/edit a shared note)
-  - CollaborationInvite (pending email invitations)
+  - EmailVerification    (one-time tokens for email confirmation)
+  - PasswordResetToken   (one-time tokens for password reset)
+  - NotePermissionModel  (who can view/edit a shared note)
+  - CollaborationInvite  (pending email invitations)
 
 All stored in PostgreSQL because they are relational data that
 requires joins, foreign-key constraints, and transactional safety.
@@ -21,6 +22,10 @@ from app.db.postgres import Base
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _1h_from_now() -> datetime:
+    return datetime.now(timezone.utc) + timedelta(hours=1)
 
 
 def _24h_from_now() -> datetime:
@@ -63,6 +68,34 @@ class EmailVerification(Base):
     user: Mapped["User"] = relationship("User", back_populates="verifications")  # noqa: F821
 
 
+# ── Password Reset ──────────────────────────────────────────────
+
+class PasswordResetToken(Base):
+    """
+    One row per password-reset request.
+    Token is single-use and expires in 1 hour.
+    Old unused tokens for the same user are invalidated on new request.
+    """
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=_new_uuid
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_1h_from_now
+    )
+    used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="password_reset_tokens")  # noqa: F821
+
+
 # ── Note Permissions ────────────────────────────────────────────
 
 class NotePermissionModel(Base):
@@ -81,7 +114,8 @@ class NotePermissionModel(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     permission: Mapped[NotePermission] = mapped_column(
-        Enum(NotePermission, name="note_permission_enum"), nullable=False
+        Enum(NotePermission, name="note_permission_enum", values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
     )
     granted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -110,14 +144,14 @@ class CollaborationInvite(Base):
     )
     invitee_email: Mapped[str] = mapped_column(String(255), nullable=False)
     permission: Mapped[NotePermission] = mapped_column(
-        Enum(NotePermission, name="note_permission_enum"),
+        Enum(NotePermission, name="note_permission_enum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     token: Mapped[str] = mapped_column(
         String(36), unique=True, nullable=False, default=_new_uuid
     )
     status: Mapped[InviteStatus] = mapped_column(
-        Enum(InviteStatus, name="invite_status_enum"),
+        Enum(InviteStatus, name="invite_status_enum", values_callable=lambda x: [e.value for e in x]),
         default=InviteStatus.PENDING,
         nullable=False,
     )

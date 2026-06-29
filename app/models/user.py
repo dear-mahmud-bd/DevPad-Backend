@@ -23,7 +23,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role_enum"),
+        Enum(UserRole, name="user_role_enum", values_callable=lambda x: [e.value for e in x]),
         default=UserRole.USER,
         nullable=False,
     )
@@ -38,6 +38,9 @@ class User(Base):
     # Relationships (lazy loaded by default; loaded only when accessed)
     verifications: Mapped[list["EmailVerification"]] = relationship(
         "EmailVerification", back_populates="user", cascade="all, delete-orphan"
+    )
+    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+        "PasswordResetToken", back_populates="user", cascade="all, delete-orphan"
     )
     note_permissions: Mapped[list["NotePermissionModel"]] = relationship(
         "NotePermissionModel", foreign_keys="NotePermissionModel.user_id",

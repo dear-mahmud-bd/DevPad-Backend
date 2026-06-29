@@ -78,3 +78,27 @@ class UserPublic(BaseModel):
 class UserUpdate(BaseModel):
     username: Optional[str] = Field(None, min_length=3, max_length=30)
     email: Optional[EmailStr] = None
+
+
+# ── Password change (authenticated) ─────────────────────────────
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+# ── Password reset ───────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+# ── Re-verification ──────────────────────────────────────────────
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr

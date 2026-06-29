@@ -26,11 +26,25 @@ from app.core.security import (
     verify_password,
 )
 from app.db.postgres import get_db
-from app.models.auth import EmailVerification
+from app.models.auth import EmailVerification, PasswordResetToken
 from app.models.user import User
-from app.schemas.user import TokenOut, UserCreate, UserLogin, UserOut
+from app.schemas.user import (
+    ForgotPasswordRequest,
+    ResendVerificationRequest,
+    ResetPasswordRequest,
+    TokenOut,
+    UserCreate,
+    UserLogin,
+    UserOut,
+)
 from app.services import email as email_service
-from app.services.kafka_producer import event_user_login, event_user_signup
+from app.services.kafka_producer import (
+    event_password_reset_completed,
+    event_password_reset_requested,
+    event_resend_verification,
+    event_user_login,
+    event_user_signup,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -242,3 +256,147 @@ async def logout():
     response = JSONResponse(content={"message": "Logged out successfully."})
     response.delete_cookie("refresh_token")
     return response
+
+
+# ── POST /auth/forgot-password ───────────────────────────────────
+
+@router.post("/forgot-password", status_code=status.HTTP_200_OK)
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Request a password-reset link.
+
+    Always returns 200 with the same message regardless of whether the email
+    exists — this prevents account enumeration by attackers.
+
+    Flow:
+      1. Look up user by email (silently do nothing if not found).
+      2. Invalidate any previous unused reset tokens for this user.
+      3. Create a new token (expires in 1 hour).
+      4. Send reset email in the background.
+    """
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+
+    if user and user.is_active:
+        # Invalidate all previous unused tokens for this user
+        old_tokens_result = await db.execute(
+            select(PasswordResetToken).where(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used == False,  # noqa: E712
+            )
+        )
+        for old in old_tokens_result.scalars().all():
+            old.used = True
+
+        reset = PasswordResetToken(user_id=user.id)
+        db.add(reset)
+        await db.flush()
+
+        ip, ua = _get_client_info(request)
+        background_tasks.add_task(
+            email_service.send_password_reset_email,
+            user.email,
+            user.username,
+            reset.token,
+        )
+        background_tasks.add_task(event_password_reset_requested, user.id, ip, ua)
+        logger.info("Password reset requested for: %s", body.email)
+
+    return {"message": "If that email is registered, a reset link has been sent."}
+
+
+# ── POST /auth/reset-password ────────────────────────────────────
+
+@router.post("/reset-password", status_code=status.HTTP_200_OK)
+async def reset_password(
+    body: ResetPasswordRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Set a new password using the token from the reset email.
+    Token is single-use and expires in 1 hour.
+    """
+    result = await db.execute(
+        select(PasswordResetToken).where(PasswordResetToken.token == body.token)
+    )
+    record = result.scalar_one_or_none()
+
+    if not record or record.used:
+        raise HTTPException(status_code=400, detail="Invalid or already used reset link.")
+
+    if datetime.now(timezone.utc) > record.expires_at:
+        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+
+    user_result = await db.execute(select(User).where(User.id == record.user_id))
+    user = user_result.scalar_one()
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is deactivated.")
+
+    user.password_hash = hash_password(body.new_password)
+    record.used = True
+
+    ip, ua = _get_client_info(request)
+    background_tasks.add_task(event_password_reset_completed, user.id, ip, ua)
+    logger.info("Password reset completed for user_id=%s", user.id)
+
+    return {"message": "Password updated successfully. You can now log in."}
+
+
+# ── POST /auth/resend-verification ──────────────────────────────
+
+@router.post("/resend-verification", status_code=status.HTTP_200_OK)
+async def resend_verification(
+    body: ResendVerificationRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Re-send the email verification link for an unverified account.
+
+    Returns 200 with the same message whether or not the email exists,
+    to prevent account enumeration.
+
+    Flow:
+      1. Find user by email (skip silently if not found or already verified).
+      2. Mark all previous unused verification tokens as used.
+      3. Create a fresh 24-hour token.
+      4. Send the verification email in the background.
+    """
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+
+    if user and not user.is_verified:
+        # Invalidate all previous unused tokens
+        old_result = await db.execute(
+            select(EmailVerification).where(
+                EmailVerification.user_id == user.id,
+                EmailVerification.used == False,  # noqa: E712
+            )
+        )
+        for old in old_result.scalars().all():
+            old.used = True
+
+        verification = EmailVerification(user_id=user.id)
+        db.add(verification)
+        await db.flush()
+
+        ip, ua = _get_client_info(request)
+        background_tasks.add_task(
+            email_service.send_verification_email,
+            user.email,
+            user.username,
+            verification.token,
+        )
+        background_tasks.add_task(event_resend_verification, user.id, ip, ua)
+        logger.info("Verification email resent for: %s", body.email)
+
+    return {"message": "If that email is registered and unverified, a new verification link has been sent."}

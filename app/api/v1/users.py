@@ -1,15 +1,17 @@
 """
 app/api/v1/users.py — User profile and cross-user note access
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user
+from app.core.security import hash_password, verify_password
 from app.db.mongodb import get_notes_collection
 from app.db.postgres import get_db
 from app.models.user import User
-from app.schemas.user import UserOut, UserUpdate
+from app.schemas.user import ChangePasswordRequest, UserOut, UserUpdate
+from app.services.kafka_producer import event_password_changed
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -33,6 +35,34 @@ async def update_profile(
         current_user.email = body.email
         current_user.is_verified = False  # re-verify on email change
     return current_user
+
+
+@router.put("/me/password", status_code=status.HTTP_200_OK)
+async def change_password(
+    body: ChangePasswordRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Change password for the authenticated user.
+    Requires the correct current password — prevents an attacker with a
+    stolen access token from locking the real user out.
+    """
+    if not verify_password(body.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+    if body.current_password == body.new_password:
+        raise HTTPException(status_code=400, detail="New password must differ from the current password.")
+
+    current_user.password_hash = hash_password(body.new_password)
+
+    ip = request.client.host if request.client else ""
+    ua = request.headers.get("user-agent", "")
+    background_tasks.add_task(event_password_changed, current_user.id, ip, ua)
+
+    return {"message": "Password changed successfully."}
 
 
 @router.get("/{user_id}/notes")

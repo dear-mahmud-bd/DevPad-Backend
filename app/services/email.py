@@ -59,6 +59,32 @@ def send_verification_email(to_email: str, username: str, token: str) -> None:
     _send(to_email, subject, html)
 
 
+def send_password_reset_email(to_email: str, username: str, token: str) -> None:
+    """
+    Sent on forgot-password request. The link calls POST /auth/reset-password.
+    Token expires in 1 hour.
+    """
+    reset_url = f"http://localhost/auth/reset-password?token={token}"
+    subject = "DevPad — Reset your password"
+    html = f"""
+    <h2>Password reset request</h2>
+    <p>Hi <strong>{username}</strong>,</p>
+    <p>We received a request to reset the password for your DevPad account.
+       Click the button below to choose a new password.
+       This link expires in <strong>1 hour</strong>.</p>
+    <p>
+      <a href="{reset_url}"
+         style="background:#4f46e5;color:#fff;padding:12px 24px;
+                border-radius:6px;text-decoration:none;font-weight:bold;">
+        Reset Password
+      </a>
+    </p>
+    <p>If you did not request a password reset, ignore this email — your
+       password will not change.</p>
+    """
+    _send(to_email, subject, html)
+
+
 def send_collaboration_invite(
     to_email: str,
     inviter_username: str,
